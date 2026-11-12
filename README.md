@@ -1,5 +1,7 @@
 > [!IMPORTANT]
-> Remove this line to confirm you've reviewed this PR before submitting.
+> This is a fork, not Zed. Please do not open pull requests from it against
+> [zed-industries/zed](https://github.com/zed-industries/zed): its changes are personal and are
+> not meant for upstream. To contribute to Zed, start from upstream's `main`.
 
 # Zett
 
