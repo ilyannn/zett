@@ -1,5 +1,8 @@
 use anyhow::{Context as _, Result};
-use client::{Client, telemetry::MINIDUMP_ENDPOINT};
+use client::{
+    Client,
+    telemetry::{MINIDUMP_ENDPOINT, TELEMETRY_COMPILED_OUT},
+};
 use feature_flags::FeatureFlagAppExt;
 use futures::{AsyncReadExt, TryStreamExt};
 use gpui::{App, AppContext, Entity, TaskExt, WeakEntity};
@@ -257,6 +260,9 @@ fn log_worktree_diagnostics(
 }
 
 pub async fn upload_previous_minidumps(client: Arc<Client>) -> anyhow::Result<()> {
+    if TELEMETRY_COMPILED_OUT {
+        return Ok(());
+    }
     let Some(minidump_endpoint) = MINIDUMP_ENDPOINT.as_ref() else {
         log::warn!("Minidump endpoint not set");
         return Ok(());
@@ -303,6 +309,9 @@ async fn upload_minidump(
     minidump: Vec<u8>,
     metadata: &crashes::CrashInfo,
 ) -> Result<()> {
+    if TELEMETRY_COMPILED_OUT {
+        return Ok(());
+    }
     if metadata.init.commit_sha == "no sha" {
         log::warn!("No commit sha set, skipping minidump upload");
         return Ok(());
