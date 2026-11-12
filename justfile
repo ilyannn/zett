@@ -77,6 +77,8 @@ install: bundle
       (fs/create-dirs (fs/parent target))
       (when (fs/exists? target) (fs/delete-tree target))
       (p/shell "ditto" (str source) (str target))
+      ;; Spotlight and Launchpad would otherwise list the copy in target/ as a second Zett.
+      (fs/delete-tree source)
       (println "Installed" (str target))
       (p/shell "open" (str target)))
 
