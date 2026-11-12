@@ -142,7 +142,7 @@ use std::{
     time::Duration,
 };
 use task::{DebugScenario, SharedTaskContext, SpawnInTerminal};
-use theme::{ActiveTheme, SystemAppearance};
+use theme::{ActiveTheme, GlobalTheme, SystemAppearance, Theme};
 use theme_settings::ThemeSettings;
 pub use toolbar::{
     PaneSearchBarCallbacks, Toolbar, ToolbarItemEvent, ToolbarItemLocation, ToolbarItemView,
@@ -1687,6 +1687,7 @@ pub struct Workspace {
     /// the window, used to skip title recomputation when unrelated settings
     /// change.
     last_window_title_settings: Option<(String, String)>,
+    last_window_theme_inputs: Option<(Arc<Theme>, Option<settings::ThemeStyleContent>)>,
     dirty_items: HashMap<EntityId, Subscription>,
     active_call: Option<(GlobalAnyActiveCall, Vec<Subscription>)>,
     leader_updates_tx: mpsc::UnboundedSender<(PeerId, proto::UpdateFollowers)>,
@@ -1837,12 +1838,14 @@ impl Workspace {
 
                 &project::Event::WorktreeRemoved(_) => {
                     this.update_window_title(window, cx);
+                    this.update_window_theme(window, cx);
                     this.serialize_workspace(window, cx);
                     this.update_history(cx);
                 }
 
                 &project::Event::WorktreeAdded(id) => {
                     this.update_window_title(window, cx);
+                    this.update_window_theme(window, cx);
                     if this
                         .project()
                         .read(cx)
@@ -2102,6 +2105,10 @@ impl Workspace {
                 if last_title_settings != Some(title_settings) {
                     this.update_window_title(window, cx);
                 }
+                this.update_window_theme(window, cx);
+            }),
+            cx.observe_global_in::<GlobalTheme>(window, |this, window, cx| {
+                this.update_window_theme(window, cx);
             }),
             cx.subscribe_in(
                 &project.read(cx).git_store().clone(),
@@ -2155,10 +2162,19 @@ impl Workspace {
                     })
                 }
             }),
+            cx.on_release({
+                let window_id = window.window_handle().window_id();
+                move |this, cx| {
+                    if this.owns_window_chrome() {
+                        GlobalTheme::set_window_theme(cx, window_id, None);
+                    }
+                }
+            }),
         ];
 
         cx.defer_in(window, move |this, window, cx| {
             this.update_window_title(window, cx);
+            this.update_window_theme(window, cx);
             this.show_initial_notifications(cx);
         });
 
@@ -2199,6 +2215,7 @@ impl Workspace {
             window_edited: false,
             last_window_title: None,
             last_window_title_settings: None,
+            last_window_theme_inputs: None,
             dirty_items: Default::default(),
             active_call,
             database_id: workspace_id,
@@ -7031,6 +7048,50 @@ impl Workspace {
         self.apply_window_title(window, cx);
     }
 
+    fn update_window_theme(&mut self, window: &mut Window, cx: &mut App) {
+        if !self.owns_window_chrome() {
+            return;
+        }
+        self.apply_window_theme(window, cx);
+    }
+
+    /// Gives the window the colors that the settings of its first folder ask
+    /// for in `window_theme_overrides`, or the shared theme when they ask for
+    /// none.
+    fn apply_window_theme(&mut self, window: &mut Window, cx: &mut App) {
+        let shared_theme = GlobalTheme::shared_theme(cx).clone();
+        let worktree_id = self
+            .project()
+            .read(cx)
+            .visible_worktrees(cx)
+            .next()
+            .map(|worktree| worktree.read(cx).id());
+        let settings_location = worktree_id.map(|worktree_id| SettingsLocation {
+            worktree_id,
+            path: RelPath::empty(),
+        });
+        let overrides = ThemeSettings::get(settings_location, cx)
+            .window_theme_overrides
+            .get(shared_theme.name.as_ref())
+            .cloned();
+
+        // Setting a window theme notifies the observers of the theme, this
+        // workspace among them, so only do it when the result would differ.
+        if let Some((last_theme, last_overrides)) = &self.last_window_theme_inputs
+            && Arc::ptr_eq(last_theme, &shared_theme)
+            && *last_overrides == overrides
+        {
+            return;
+        }
+
+        let window_theme = overrides
+            .as_ref()
+            .map(|overrides| ThemeSettings::apply_window_theme_overrides(&shared_theme, overrides));
+        self.last_window_theme_inputs = Some((shared_theme, overrides));
+        GlobalTheme::set_window_theme(cx, window.window_handle().window_id(), window_theme);
+        window.refresh();
+    }
+
     /// Whether the active window-title template references `${branch}`, and so
     /// can be affected by Git repository events.
     fn window_title_needs_branch(&self, cx: &App) -> bool {
@@ -7212,6 +7273,8 @@ impl Workspace {
     pub fn refresh_window_state(&mut self, window: &mut Window, cx: &mut App) {
         self.last_window_title = None;
         self.apply_window_title(window, cx);
+        self.last_window_theme_inputs = None;
+        self.apply_window_theme(window, cx);
 
         self.window_edited = self.is_window_edited(cx);
         window.set_window_edited(self.window_edited);
@@ -20206,6 +20269,194 @@ mod tests {
 
         let settings_text = SettingsStore::load_settings(&settings_fs).await.unwrap();
         assert!(settings_text.contains(r#""mode": "light""#));
+    }
+
+    #[gpui::test]
+    fn test_window_theme_overrides_are_read_from_local_settings(cx: &mut TestAppContext) {
+        init_test(cx);
+        let worktree_id = WorktreeId::from_usize(1);
+        let other_worktree_id = WorktreeId::from_usize(2);
+
+        cx.update(|cx| {
+            SettingsStore::update_global(cx, |store, cx| {
+                store.set_local_settings(
+                    worktree_id,
+                    settings::LocalSettingsPath::InWorktree(RelPath::empty().into()),
+                    settings::LocalSettingsKind::Settings,
+                    Some(
+                        r##"{
+                            "window_theme_overrides": {
+                                "One Dark": { "title_bar.background": "#ff0000ff" }
+                            }
+                        }"##,
+                    ),
+                    cx,
+                )
+            })
+            .unwrap();
+
+            let local_settings = ThemeSettings::get(
+                Some(SettingsLocation {
+                    worktree_id,
+                    path: RelPath::empty(),
+                }),
+                cx,
+            );
+            assert_eq!(local_settings.window_theme_overrides.len(), 1);
+            assert_eq!(
+                local_settings.window_theme_overrides["One Dark"]
+                    .colors
+                    .title_bar_background
+                    .as_deref(),
+                Some("#ff0000ff")
+            );
+
+            let nested_settings = ThemeSettings::get(
+                Some(SettingsLocation {
+                    worktree_id,
+                    path: rel_path("src/main.rs"),
+                }),
+                cx,
+            );
+            assert_eq!(
+                nested_settings.window_theme_overrides,
+                local_settings.window_theme_overrides
+            );
+
+            assert!(
+                ThemeSettings::get_global(cx)
+                    .window_theme_overrides
+                    .is_empty()
+            );
+            assert!(
+                ThemeSettings::get(
+                    Some(SettingsLocation {
+                        worktree_id: other_worktree_id,
+                        path: RelPath::empty(),
+                    }),
+                    cx,
+                )
+                .window_theme_overrides
+                .is_empty()
+            );
+        });
+    }
+
+    #[gpui::test]
+    async fn test_window_theme_follows_project_window_theme_overrides(cx: &mut TestAppContext) {
+        use settings::{ThemeName, ThemeSelection};
+
+        fn theme_in_window(
+            window: WindowHandle<MultiWorkspace>,
+            cx: &mut TestAppContext,
+        ) -> Arc<Theme> {
+            window.update(cx, |_, _, cx| cx.theme().clone()).unwrap()
+        }
+
+        init_test(cx);
+        let red = theme::try_parse_color("#ff0000ff").unwrap();
+        let green = theme::try_parse_color("#00ff00ff").unwrap();
+        let blue = theme::try_parse_color("#0000ffff").unwrap();
+
+        let fs = FakeFs::new(cx.executor());
+        fs.insert_tree(
+            path!("/themed"),
+            json!({
+                ".zed": {
+                    "settings.json": r##"{
+                        "window_theme_overrides": {
+                            "One Dark": { "title_bar.background": "#ff0000ff" },
+                            "Other Theme": { "title_bar.background": "#00ff00ff" }
+                        }
+                    }"##
+                },
+                "file.rs": ""
+            }),
+        )
+        .await;
+        fs.insert_tree(path!("/plain"), json!({ "file.rs": "" }))
+            .await;
+
+        let themed_project = Project::test(fs.clone(), [path!("/themed").as_ref()], cx).await;
+        let plain_project = Project::test(fs.clone(), [path!("/plain").as_ref()], cx).await;
+        let themed_window =
+            cx.add_window(|window, cx| MultiWorkspace::test_new(themed_project, window, cx));
+        let plain_window =
+            cx.add_window(|window, cx| MultiWorkspace::test_new(plain_project, window, cx));
+        cx.run_until_parked();
+
+        let one_dark = cx.update(|cx| GlobalTheme::shared_theme(cx).clone());
+        assert_eq!(one_dark.name.as_ref(), "One Dark");
+        assert_ne!(one_dark.colors().title_bar_background, red);
+
+        let themed_window_theme = theme_in_window(themed_window, cx);
+        assert_eq!(themed_window_theme.name, one_dark.name);
+        assert_eq!(themed_window_theme.colors().title_bar_background, red);
+        assert_eq!(
+            themed_window_theme.colors().status_bar_background,
+            one_dark.colors().status_bar_background
+        );
+        assert!(Arc::ptr_eq(&theme_in_window(plain_window, cx), &one_dark));
+        cx.update(|cx| assert!(Arc::ptr_eq(cx.theme(), &one_dark)));
+
+        let mut other_theme = (*one_dark).clone();
+        other_theme.id = "other-theme".to_string();
+        other_theme.name = "Other Theme".into();
+        other_theme.styles.colors.status_bar_background = blue;
+        cx.update(|cx| {
+            theme::ThemeRegistry::global(cx).insert_themes([other_theme]);
+            SettingsStore::update_global(cx, |store, cx| {
+                store.update_user_settings(cx, |settings| {
+                    settings.theme.theme =
+                        Some(ThemeSelection::Static(ThemeName("Other Theme".into())));
+                });
+            });
+        });
+        cx.run_until_parked();
+
+        let shared_theme = cx.update(|cx| GlobalTheme::shared_theme(cx).clone());
+        assert_eq!(shared_theme.name.as_ref(), "Other Theme");
+        let themed_window_theme = theme_in_window(themed_window, cx);
+        assert_eq!(themed_window_theme.name.as_ref(), "Other Theme");
+        assert_eq!(themed_window_theme.colors().title_bar_background, green);
+        assert_eq!(themed_window_theme.colors().status_bar_background, blue);
+        assert!(Arc::ptr_eq(
+            &theme_in_window(plain_window, cx),
+            &shared_theme
+        ));
+
+        cx.update(|cx| GlobalTheme::update_theme(cx, one_dark.clone()));
+        cx.run_until_parked();
+
+        let shared_theme = one_dark;
+        let themed_window_theme = theme_in_window(themed_window, cx);
+        assert_eq!(themed_window_theme.name, shared_theme.name);
+        assert_eq!(themed_window_theme.colors().title_bar_background, red);
+        assert_eq!(
+            themed_window_theme.colors().status_bar_background,
+            shared_theme.colors().status_bar_background
+        );
+        assert!(Arc::ptr_eq(
+            &theme_in_window(plain_window, cx),
+            &shared_theme
+        ));
+
+        fs.atomic_write(
+            Path::new(path!("/themed/.zed/settings.json")).to_owned(),
+            r#"{ "tab_size": 4 }"#.into(),
+        )
+        .await
+        .unwrap();
+        cx.run_until_parked();
+
+        assert!(Arc::ptr_eq(
+            &theme_in_window(themed_window, cx),
+            &shared_theme
+        ));
+        assert!(Arc::ptr_eq(
+            &theme_in_window(plain_window, cx),
+            &shared_theme
+        ));
     }
 
     fn dirty_project_item(id: u64, path: &str, cx: &mut App) -> Entity<TestProjectItem> {

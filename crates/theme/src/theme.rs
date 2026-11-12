@@ -24,11 +24,12 @@ mod ui_density;
 
 use std::sync::Arc;
 
+use collections::HashMap;
 use gpui::BorrowAppContext;
 use gpui::Global;
 use gpui::{
     App, AssetSource, Hsla, Pixels, SharedString, Styled, Tiling, WindowAppearance,
-    WindowBackgroundAppearance, px,
+    WindowBackgroundAppearance, WindowId, px,
 };
 use serde::Deserialize;
 
@@ -141,7 +142,7 @@ pub fn init(themes_to_load: LoadThemes, cx: &mut App) {
             .unwrap()
     });
     let icon_theme = themes.default_icon_theme().unwrap();
-    cx.set_global(GlobalTheme { theme, icon_theme });
+    cx.set_global(GlobalTheme::new(theme, icon_theme));
 }
 
 /// Implementing this trait allows accessing the active theme.
@@ -322,13 +323,18 @@ pub fn deserialize_icon_theme(bytes: &[u8]) -> anyhow::Result<IconThemeFamilyCon
 pub struct GlobalTheme {
     theme: Arc<Theme>,
     icon_theme: Arc<IconTheme>,
+    window_themes: HashMap<WindowId, Arc<Theme>>,
 }
 impl Global for GlobalTheme {}
 
 impl GlobalTheme {
     /// Creates a new [`GlobalTheme`] with the given theme and icon theme.
     pub fn new(theme: Arc<Theme>, icon_theme: Arc<IconTheme>) -> Self {
-        Self { theme, icon_theme }
+        Self {
+            theme,
+            icon_theme,
+            window_themes: HashMap::default(),
+        }
     }
 
     /// Updates the active theme.
@@ -341,13 +347,120 @@ impl GlobalTheme {
         cx.update_global::<Self, _>(|this, _| this.icon_theme = icon_theme);
     }
 
-    /// Returns the active theme.
+    /// Sets or clears the theme that replaces the active theme inside one window.
+    ///
+    /// A window theme must keep the syntax styles of the active theme: syntax
+    /// highlight ids are resolved against the active theme for all windows.
+    pub fn set_window_theme(cx: &mut App, window_id: WindowId, theme: Option<Arc<Theme>>) {
+        // Clearing a window that has no theme must not notify observers, since
+        // every workspace does that when it opens.
+        if theme.is_none() && !cx.global::<Self>().window_themes.contains_key(&window_id) {
+            return;
+        }
+        cx.update_global::<Self, _>(|this, _| match theme {
+            Some(theme) => {
+                this.window_themes.insert(window_id, theme);
+            }
+            None => {
+                this.window_themes.remove(&window_id);
+            }
+        });
+    }
+
+    /// Returns the active theme: the theme of the window that is being updated
+    /// when it has one, and the theme shared by all windows otherwise.
     pub fn theme(cx: &App) -> &Arc<Theme> {
+        let this = cx.global::<Self>();
+        if this.window_themes.is_empty() {
+            return &this.theme;
+        }
+        cx.updating_window_id()
+            .and_then(|window_id| this.window_themes.get(&window_id))
+            .unwrap_or(&this.theme)
+    }
+
+    /// Returns the theme shared by all windows, ignoring window themes.
+    pub fn shared_theme(cx: &App) -> &Arc<Theme> {
         &cx.global::<Self>().theme
     }
 
     /// Returns the active icon theme.
     pub fn icon_theme(cx: &App) -> &Arc<IconTheme> {
         &cx.global::<Self>().icon_theme
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::Cell, rc::Rc};
+
+    use gpui::{EmptyView, TestAppContext};
+
+    use super::*;
+
+    #[gpui::test]
+    fn test_window_theme_applies_only_inside_its_window(cx: &mut TestAppContext) {
+        cx.update(|cx| init(LoadThemes::JustBase, cx));
+        let window = cx.add_window(|_, _| EmptyView);
+        let other_window = cx.add_window(|_, _| EmptyView);
+        let window_id = window.window_id();
+
+        let shared_theme = cx.update(|cx| GlobalTheme::shared_theme(cx).clone());
+        let mut window_theme = (*shared_theme).clone();
+        window_theme.styles.colors.title_bar_background = gpui::red();
+        let window_theme = Arc::new(window_theme);
+        assert_ne!(
+            shared_theme.colors().title_bar_background,
+            window_theme.colors().title_bar_background
+        );
+
+        let notification_count = Rc::new(Cell::new(0));
+        let _subscription = cx.update(|cx| {
+            cx.observe_global::<GlobalTheme>({
+                let notification_count = notification_count.clone();
+                move |_| notification_count.set(notification_count.get() + 1)
+            })
+        });
+
+        cx.update(|cx| GlobalTheme::set_window_theme(cx, window_id, None));
+        assert_eq!(
+            notification_count.get(),
+            0,
+            "clearing a window without a theme must not notify observers"
+        );
+
+        cx.update(|cx| GlobalTheme::set_window_theme(cx, window_id, Some(window_theme.clone())));
+        assert_eq!(notification_count.get(), 1);
+
+        let theme_in_window = window.update(cx, |_, _, cx| cx.theme().clone()).unwrap();
+        assert!(Arc::ptr_eq(&theme_in_window, &window_theme));
+
+        let theme_in_other_window = other_window
+            .update(cx, |_, _, cx| cx.theme().clone())
+            .unwrap();
+        assert!(Arc::ptr_eq(&theme_in_other_window, &shared_theme));
+
+        cx.update(|cx| {
+            assert!(Arc::ptr_eq(cx.theme(), &shared_theme));
+            assert!(Arc::ptr_eq(GlobalTheme::shared_theme(cx), &shared_theme));
+        });
+
+        let shared_theme_in_window = window
+            .update(cx, |_, _, cx| GlobalTheme::shared_theme(cx).clone())
+            .unwrap();
+        assert!(Arc::ptr_eq(&shared_theme_in_window, &shared_theme));
+
+        cx.update(|cx| GlobalTheme::set_window_theme(cx, window_id, None));
+        assert_eq!(notification_count.get(), 2);
+
+        let theme_in_window = window.update(cx, |_, _, cx| cx.theme().clone()).unwrap();
+        assert!(Arc::ptr_eq(&theme_in_window, &shared_theme));
+
+        cx.update(|cx| GlobalTheme::set_window_theme(cx, window_id, None));
+        assert_eq!(
+            notification_count.get(),
+            2,
+            "clearing a window whose theme was already cleared must not notify observers"
+        );
     }
 }

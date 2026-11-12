@@ -1606,6 +1606,11 @@ impl App {
         self.platform.active_window()
     }
 
+    /// Returns the id of the window that is currently being updated or drawn, if any.
+    pub fn updating_window_id(&self) -> Option<WindowId> {
+        self.window_update_stack.last().map(|entry| entry.window_id)
+    }
+
     /// Returns the display containing the window that is currently focused at the platform level.
     pub fn active_display(&self) -> Option<Rc<dyn PlatformDisplay>> {
         let (display_id, _) = self.active_window_placement()?;

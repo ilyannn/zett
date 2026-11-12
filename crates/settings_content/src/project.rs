@@ -14,7 +14,7 @@ use util::serde::default_true;
 
 use crate::{
     AllLanguageSettingsContent, DelayMs, ExtendingVec, ParseStatus, ProjectTerminalSettingsContent,
-    RootUserSettings, SaturatingBool, SplicingVec, fallible_options,
+    RootUserSettings, SaturatingBool, SplicingVec, ThemeStyleContent, fallible_options,
 };
 
 #[with_fallible_options]
@@ -85,6 +85,16 @@ pub struct ProjectSettingsContent {
     ///
     /// Default: false
     pub disable_ai: Option<SaturatingBool>,
+
+    /// Color overrides, per theme, for the windows that show this project.
+    ///
+    /// Takes the same form as `theme_overrides` and applies on top of it, but
+    /// only to a window whose first folder is this project. Syntax styles are
+    /// ignored, because all windows share them.
+    ///
+    /// Default: {}
+    #[serde(default)]
+    pub window_theme_overrides: HashMap<String, ThemeStyleContent>,
 }
 
 crate::fallible_options::flattened_deserialize!(ProjectSettingsContent {
@@ -92,7 +102,7 @@ crate::fallible_options::flattened_deserialize!(ProjectSettingsContent {
     options: {
         terminal, context_server_timeout, load_direnv, git_hosting_providers, disable_ai,
     },
-    defaults: { lsp, dap, context_servers },
+    defaults: { lsp, dap, context_servers, window_theme_overrides },
 });
 
 /// When to scan content of linked directories.
@@ -1133,6 +1143,44 @@ mod tests {
             )),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn test_window_theme_overrides_parse_alongside_other_project_settings() {
+        let (settings, parse_status) = ProjectSettingsContent::parse_json(
+            r##"{
+                "tab_size": 3,
+                "window_theme_overrides": {
+                    "One Dark": {
+                        "title_bar.background": "#ff0000ff",
+                        "syntax": {
+                            "keyword": { "color": "#00ff00ff" }
+                        }
+                    }
+                }
+            }"##,
+        );
+        assert_eq!(parse_status, ParseStatus::Success);
+        let settings = settings.unwrap();
+
+        assert_eq!(
+            settings.all_languages.defaults.tab_size.map(u32::from),
+            Some(3)
+        );
+        assert_eq!(settings.window_theme_overrides.len(), 1);
+        let overrides = &settings.window_theme_overrides["One Dark"];
+        assert_eq!(
+            overrides.colors.title_bar_background.as_deref(),
+            Some("#ff0000ff")
+        );
+        assert_eq!(
+            overrides.syntax["keyword"].color.as_deref(),
+            Some("#00ff00ff")
+        );
+
+        let (settings, parse_status) = ProjectSettingsContent::parse_json(r#"{ "tab_size": 3 }"#);
+        assert_eq!(parse_status, ParseStatus::Success);
+        assert!(settings.unwrap().window_theme_overrides.is_empty());
     }
 
     #[test]
