@@ -94,6 +94,8 @@ pub struct ThemeSettings {
     pub experimental_theme_overrides: Option<settings::ThemeStyleContent>,
     /// Manual overrides per theme
     pub theme_overrides: HashMap<String, settings::ThemeStyleContent>,
+    /// Color overrides per theme for the windows that show a project
+    pub window_theme_overrides: HashMap<String, settings::ThemeStyleContent>,
     /// The current icon theme selection.
     pub icon_theme: IconThemeSelection,
     /// The density of the UI.
@@ -538,6 +540,20 @@ impl ThemeSettings {
         arc_theme
     }
 
+    /// Returns `theme` with a project's `window_theme_overrides` entry applied.
+    pub fn apply_window_theme_overrides(
+        theme: &Theme,
+        window_theme_overrides: &settings::ThemeStyleContent,
+    ) -> Arc<Theme> {
+        // Syntax highlight ids index into the syntax styles of the theme that
+        // all windows share, so a window theme has to keep those unchanged.
+        let mut window_theme_overrides = window_theme_overrides.clone();
+        window_theme_overrides.syntax.clear();
+        let mut theme = theme.clone();
+        ThemeSettings::modify_theme(&mut theme, &window_theme_overrides);
+        Arc::new(theme)
+    }
+
     fn modify_theme(base_theme: &mut Theme, theme_overrides: &settings::ThemeStyleContent) {
         if let Some(window_background_appearance) = theme_overrides.window_background_appearance {
             base_theme.styles.window_background_appearance =
@@ -785,6 +801,7 @@ impl settings::Settings for ThemeSettings {
             theme: theme_selection,
             experimental_theme_overrides: content.experimental_theme_overrides.clone(),
             theme_overrides: content.theme_overrides.clone(),
+            window_theme_overrides: settings_content.project.window_theme_overrides.clone(),
             icon_theme: icon_theme_selection,
             ui_density: ui_density_from_settings(content.ui_density.unwrap_or_default()),
             unnecessary_code_fade: content.unnecessary_code_fade.unwrap().0.clamp(0.0, 0.9),
@@ -886,6 +903,61 @@ mod tests {
                 .colors
                 .color(::theme::ThemeColorField::EditorCodeLensForeground),
             green
+        );
+    }
+
+    fn highlight_with_color(color: &str) -> ::settings::HighlightStyleContent {
+        ::settings::HighlightStyleContent {
+            color: Some(color.into()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn window_theme_overrides_change_colors_but_keep_syntax() {
+        let red = ::theme::try_parse_color("#ff0000ff").unwrap();
+        let base_theme = crate::refine_theme(&crate::ThemeContent {
+            name: "Test".into(),
+            appearance: ::theme::AppearanceContent::Dark,
+            style: ::settings::ThemeStyleContent {
+                syntax: [("keyword".to_string(), highlight_with_color("#0000ffff"))]
+                    .into_iter()
+                    .collect(),
+                ..Default::default()
+            },
+        });
+        assert_ne!(base_theme.styles.colors.title_bar_background, red);
+
+        let overrides = ::settings::ThemeStyleContent {
+            colors: ::settings::ThemeColorsContent {
+                title_bar_background: Some("#ff0000ff".into()),
+                ..Default::default()
+            },
+            syntax: [
+                ("keyword".to_string(), highlight_with_color("#00ff00ff")),
+                ("comment".to_string(), highlight_with_color("#00ff00ff")),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        };
+
+        let window_theme = ThemeSettings::apply_window_theme_overrides(&base_theme, &overrides);
+
+        let mut expected_colors = base_theme.styles.colors.clone();
+        expected_colors.title_bar_background = red;
+        assert_eq!(window_theme.styles.colors, expected_colors);
+        assert_eq!(window_theme.styles.status, base_theme.styles.status);
+        assert_eq!(window_theme.styles.player, base_theme.styles.player);
+        assert_eq!(window_theme.styles.accents, base_theme.styles.accents);
+        assert_eq!(window_theme.name, base_theme.name);
+        assert_eq!(window_theme.styles.syntax, base_theme.styles.syntax);
+
+        let mut theme_with_syntax_overrides = base_theme.clone();
+        ThemeSettings::modify_theme(&mut theme_with_syntax_overrides, &overrides);
+        assert_ne!(
+            theme_with_syntax_overrides.styles.syntax, base_theme.styles.syntax,
+            "the overrides' syntax entries would change the syntax styles if they were applied"
         );
     }
 }
