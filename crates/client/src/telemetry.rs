@@ -90,6 +90,10 @@ static ZED_CLIENT_CHECKSUM_SEED: LazyLock<Option<Vec<u8>>> = LazyLock::new(|| {
         })
 });
 
+/// This build never sends telemetry or crash dumps. Tests keep it enabled so
+/// upstream's tests still exercise the code.
+pub const TELEMETRY_COMPILED_OUT: bool = !cfg!(any(test, feature = "test-support"));
+
 pub static MINIDUMP_ENDPOINT: LazyLock<Option<String>> = LazyLock::new(|| {
     option_env!("ZED_MINIDUMP_ENDPOINT")
         .map(str::to_string)
@@ -97,6 +101,9 @@ pub static MINIDUMP_ENDPOINT: LazyLock<Option<String>> = LazyLock::new(|| {
 });
 
 pub fn should_install_crash_handler(channel: ReleaseChannel) -> bool {
+    if TELEMETRY_COMPILED_OUT {
+        return false;
+    }
     matches!(
         env::var("ZED_GENERATE_MINIDUMPS").as_deref(),
         Ok("true" | "1")
@@ -414,6 +421,9 @@ impl Telemetry {
         metrics_id: Option<String>,
         is_staff: bool,
     ) {
+        if TELEMETRY_COMPILED_OUT {
+            return;
+        }
         let mut state = self.state.lock();
 
         if !state.settings.metrics {
@@ -597,6 +607,9 @@ impl Telemetry {
     }
 
     fn report_event(self: &Arc<Self>, mut event: Event) {
+        if TELEMETRY_COMPILED_OUT {
+            return;
+        }
         let mut state = self.state.lock();
         // RUST_LOG=telemetry=trace to debug telemetry events
         log::trace!(target: "telemetry", "{:?}", event);
@@ -691,6 +704,9 @@ impl Telemetry {
     }
 
     pub async fn flush_events_inner(self: &Arc<Self>) -> Result<()> {
+        if TELEMETRY_COMPILED_OUT {
+            return Ok(());
+        }
         let (json_bytes, request_body) = {
             let mut state = self.state.lock();
             state.first_event_date_time = None;

@@ -685,15 +685,16 @@ impl AutoUpdater {
     ) -> Result<ReleaseAsset> {
         let client = this.read_with(cx, |this, _| this.client.clone());
 
-        let (system_id, metrics_id, is_staff) = if client.telemetry().metrics_enabled() {
-            (
-                client.telemetry().system_id(),
-                client.telemetry().metrics_id(),
-                client.telemetry().is_staff(),
-            )
-        } else {
-            (None, None, None)
-        };
+        let (system_id, metrics_id, is_staff) =
+            if !client::telemetry::TELEMETRY_COMPILED_OUT && client.telemetry().metrics_enabled() {
+                (
+                    client.telemetry().system_id(),
+                    client.telemetry().metrics_id(),
+                    client.telemetry().is_staff(),
+                )
+            } else {
+                (None, None, None)
+            };
 
         let version = if let Some(mut version) = version {
             version.pre = semver::Prerelease::EMPTY;
