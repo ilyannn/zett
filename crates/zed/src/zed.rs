@@ -1542,7 +1542,7 @@ fn initialize_pane(
 fn open_about_window(cx: &mut App) {
     fn about_window_icon(release_channel: ReleaseChannel) -> Arc<Image> {
         let bytes = match release_channel {
-            ReleaseChannel::Dev => include_bytes!("../resources/app-icon-dev.png").as_slice(),
+            ReleaseChannel::Dev => include_bytes!("../resources/app-icon-fork.png").as_slice(),
             ReleaseChannel::Nightly => {
                 include_bytes!("../resources/app-icon-nightly.png").as_slice()
             }
@@ -1732,7 +1732,7 @@ fn open_about_window(cx: &mut App) {
     cx.open_window(
         WindowOptions {
             titlebar: Some(TitlebarOptions {
-                title: Some("About Zed".into()),
+                title: Some("About Zett".into()),
                 appears_transparent: true,
                 traffic_light_position: Some(point(px(12.), px(12.))),
             }),
