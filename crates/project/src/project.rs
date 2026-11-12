@@ -1229,6 +1229,10 @@ pub enum PulledDiagnostics {
     },
 }
 
+/// This build has no AI features, whatever the settings say. Tests keep the
+/// setting in control so upstream's tests still exercise the code.
+pub const AI_COMPILED_OUT: bool = !cfg!(any(test, feature = "test-support"));
+
 /// Whether to disable all AI features in Zed.
 ///
 /// Default: false
@@ -1240,7 +1244,7 @@ pub struct DisableAiSettings {
 impl settings::Settings for DisableAiSettings {
     fn from_settings(content: &settings::SettingsContent) -> Self {
         Self {
-            disable_ai: content.project.disable_ai.unwrap().0,
+            disable_ai: AI_COMPILED_OUT || content.project.disable_ai.unwrap().0,
         }
     }
 }

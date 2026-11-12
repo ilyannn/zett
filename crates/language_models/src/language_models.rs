@@ -141,6 +141,10 @@ pub fn init(user_store: Entity<UserStore>, client: Arc<Client>, cx: &mut App) {
 }
 
 fn ai_disabled(cx: &App) -> bool {
+    // Mirrors `project::AI_COMPILED_OUT`, which this crate cannot depend on.
+    if !cfg!(any(test, feature = "test-support")) {
+        return true;
+    }
     cx.try_global::<SettingsStore>().is_some_and(|store| {
         store
             .merged_settings()
