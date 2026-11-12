@@ -1,5 +1,13 @@
 # Zett: rules for this fork
 
+This repository is Zett, a personal fork of Zed (see `README.md`). Work lands on the branch `fork` of `ilyannn/zett` and is not sent upstream. Everything below this section was written by Zed's maintainers for contributions to `zed-industries/zed`, and is kept unchanged so that rebasing onto upstream stays clean.
+
+* The coding, GPUI, testing and build guidelines below apply here as written.
+* The rules about pull requests to upstream do not apply to work on the fork. That covers the `README.md` review marker (the "HARD RULE" below), "Pull request hygiene", release notes, and "Suggested .rules additions". They apply only to a change that is being prepared as a pull request to `zed-industries/zed`.
+* The branch `fork` is rebased onto upstream `main`, so keep changes to upstream's files small and prefer new files where that is possible.
+* Run cargo through `just` recipes or `mise x -- cargo ...`. Build scripts call `cmake` from outside the repository, where the mise shim has no pinned version.
+* `log.md` records what the fork's work changes outside the repository: installs on the machine, the installed app, the GitHub repository's settings, changes to Zed's data folder, requests to other agents. An entry is one or two lines under the day's heading, with the thread or commit to look at. The repository is public, so no personal names, emails or home paths.
+
 # Rust coding guidelines
 
 * Prioritize code correctness and clarity. Speed and efficiency are secondary priorities unless otherwise specified.
