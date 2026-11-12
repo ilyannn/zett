@@ -19,3 +19,5 @@ What this fork's work changed outside the repository. Newest day last.
   (thread #149, done), and to tint the zed-settings project with the key colour `#059669`
   (thread `2026-11-12-tint-the-zed-settings-project-window-in`).
 - Agent directory: this folder's entry was renamed from `zed-source` to `zett`.
+- The database backup `0-dev.before-import-2026-11-12` was moved to the Trash once the imported
+  recent projects looked right. The folder moved to `~/Code/zett`.
