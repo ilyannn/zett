@@ -1,3 +1,27 @@
+> [!IMPORTANT]
+> Remove this line to confirm you've reviewed this PR before submitting.
+
+# Zett
+
+Zett is a personal fork of [Zed](https://github.com/zed-industries/zed), built for one Mac. It is
+not affiliated with or supported by Zed Industries; for the editor itself, use upstream. The
+branch `fork` is rebased onto upstream `main`, so its history is rewritten regularly.
+
+What differs from upstream:
+
+- **Window colors per project.** A project's `.zed/settings.json` can set
+  `window_theme_overrides`, in the same form as `theme_overrides`, to recolor the windows that
+  show that project. Syntax styles are shared by all windows and are not affected.
+- **No telemetry.** Events, crash handling and minidump uploads are compiled out, and update
+  requests carry no machine or metrics ids.
+- **No AI features.** `disable_ai` is always on, whatever the settings say.
+- **Its own name and icon.** The dev channel builds as `Zett.app` (`dev.zett.Zett`) and runs next
+  to an installed Zed, sharing its configuration in `~/.config/zed`.
+- **A mise and just harness.** `mise install`, then `just` lists the recipes: `bundle`,
+  `install` (into `~/Applications`), `cli`, `sync` (rebase onto upstream), `patches`.
+
+No binaries are published. Upstream's README follows.
+
 # Zed
 
 [![Zed](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/zed-industries/zed/main/assets/badge/v0.json)](https://zed.dev)
