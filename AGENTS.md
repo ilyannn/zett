@@ -1,3 +1,5 @@
+# Zett: rules for this fork
+
 # Rust coding guidelines
 
 * Prioritize code correctness and clarity. Speed and efficiency are secondary priorities unless otherwise specified.
