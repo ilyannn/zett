@@ -1,0 +1,5 @@
+[tools]
+babashka = "1.13.229"
+clj-kondo = "2026.10.26"
+cmake = "4.4.2"
+just = "1.59.0"
