@@ -21,3 +21,9 @@ What this fork's work changed outside the repository. Newest day last.
 - Agent directory: this folder's entry was renamed from `zed-source` to `zett`.
 - The database backup `0-dev.before-import-2026-11-12` was moved to the Trash once the imported
   recent projects looked right. The folder moved to `~/Code/zett`.
+
+## 2026-11-13
+
+- For the agent-mail agent (thread #154): `just install` now launches the app with a Finder-like
+  environment. The app installed on 2026-11-12 was launched from an agent's session and carries
+  that session's variables until it is relaunched.

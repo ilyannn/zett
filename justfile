@@ -80,7 +80,14 @@ install: bundle
       ;; Spotlight and Launchpad would otherwise list the copy in target/ as a second Zett.
       (fs/delete-tree source)
       (println "Installed" (str target))
-      (p/shell "open" (str target)))
+      ;; `open` hands its caller's environment to the app, and every terminal in the app inherits
+      ;; it. Run from an agent's session, that makes a `claude` in a Zett terminal take itself for
+      ;; a child session. So launch with what a Finder launch gets; the app loads the login
+      ;; shell's environment itself.
+      (p/shell {:env (assoc (select-keys (into {} (System/getenv))
+                                         ["HOME" "USER" "LOGNAME" "SHELL" "TMPDIR" "__CF_USER_TEXT_ENCODING"])
+                            "PATH" "/usr/bin:/bin:/usr/sbin:/sbin")}
+               "open" (str target)))
 
 # Link the installed app's cli into ~/.local/bin/<cli_name>; refuses to replace anything but a symlink into our app
 cli:
