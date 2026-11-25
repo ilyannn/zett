@@ -27,3 +27,9 @@ What this fork's work changed outside the repository. Newest day last.
 - For the agent-mail agent (thread #154): `just install` now launches the app with a Finder-like
   environment. The app installed on 2026-11-12 was launched from an agent's session and carries
   that session's variables until it is relaunched.
+
+## 2026-11-25
+
+- On the second machine (im-work), for the machines agent (thread #31): rebased `fork` onto upstream `main`, then installed
+  the pinned tools (`mise install`, for cmake) and Xcode's Metal toolchain. `just install` put `Zett.app` into
+  `~/Applications` and `just cli` linked `~/.local/bin/zett`.
